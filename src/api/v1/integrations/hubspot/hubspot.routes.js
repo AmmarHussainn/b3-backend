@@ -1,7 +1,7 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/integrations/hubspot/hubspot.routes.js
-
-export default router;
+import { validate } from '../../../../middleware/validate.js';
+import * as v from './hubspot.validators.js';
+import { receive } from './hubspot.controller.js';
+const r = Router(); // authenticated by hubspotAuth (mounted)
+r.post('/', validate({ body: v.body }), receive);
+export default r;

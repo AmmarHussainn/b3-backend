@@ -1,5 +1,8 @@
 import { ApiError } from '../utils/ApiError.js';
 
-/** requireRole('owner', 'content_admin'). Must run after authAdmin. */
-export const requireRole = (...roles) => (req, _res, next) =>
-  req.admin && roles.includes(req.admin.role) ? next() : next(ApiError.forbidden());
+/** requireRole('owner', 'content_admin'): must run after authAdmin. Role always comes from the DB. */
+export const requireRole = (...roles) => (req, res, next) => {
+  if (!req.admin) return next(ApiError.unauthorized());
+  if (!roles.includes(req.admin.role)) return next(ApiError.forbidden('Your role cannot do that'));
+  next();
+};

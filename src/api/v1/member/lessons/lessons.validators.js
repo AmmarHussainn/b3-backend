@@ -1,3 +1,4 @@
 import { z } from 'zod';
-
-// TODO: zod schemas for src/api/v1/member/lessons/lessons.validators.js
+import { idParams } from '../../../../utils/zodHelpers.js';
+export { idParams };
+export const resolve = z.object({ category: z.string().min(1).max(120), lesson: z.string().min(1).max(160) });

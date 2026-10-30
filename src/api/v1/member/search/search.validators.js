@@ -1,3 +1,2 @@
 import { z } from 'zod';
-
-// TODO: zod schemas for src/api/v1/member/search/search.validators.js
+export const query = z.object({ q: z.string().trim().min(2).max(100), limit: z.coerce.number().int().min(1).max(50).default(20) });

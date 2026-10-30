@@ -1,28 +1,21 @@
 import { ApiError } from '../../utils/ApiError.js';
+import { logger } from '../../utils/logger.js';
 
-/** Thin fetch wrapper for Bunny APIs: timeout, JSON handling, consistent upstream errors. */
-export async function bunnyFetch(url, { method = 'GET', headers = {}, body, json, timeoutMs = 30_000, raw = false, duplex } = {}) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+/** fetch wrapper: timeout + uniform errors. parse: 'json' | 'none' | 'raw' (returns the Response). */
+export async function bunnyFetch(url, { method = 'GET', headers = {}, body, timeoutMs = 30_000, parse = 'json' } = {}) {
+  let res;
   try {
-    const res = await fetch(url, {
-      method,
-      headers: { accept: 'application/json', ...(json ? { 'content-type': 'application/json' } : {}), ...headers },
-      body: json ? JSON.stringify(json) : body,
-      signal: ctrl.signal,
-      ...(duplex ? { duplex } : {}),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw ApiError.upstream('Bunny', `${method} ${new URL(url).pathname} failed (${res.status})`, text.slice(0, 500));
-    }
-    if (raw) return res;
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  } catch (err) {
-    if (err instanceof ApiError) throw err;
-    throw ApiError.upstream('Bunny', err.name === 'AbortError' ? 'request timed out' : err.message);
-  } finally {
-    clearTimeout(timer);
+    res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    throw ApiError.upstream(`Bunny request failed: ${e.name === 'TimeoutError' ? 'timed out' : e.message}`);
   }
+  if (parse === 'raw') return res;
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    logger.warn({ url: url.split('?')[0], status: res.status, text: text.slice(0, 300) }, 'Bunny error');
+    throw ApiError.upstream(`Bunny responded ${res.status}`, { status: res.status });
+  }
+  if (parse === 'none') return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }

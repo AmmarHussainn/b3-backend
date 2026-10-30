@@ -10,6 +10,7 @@ const schema = new mongoose.Schema(
     number: Number, // training: 0 = welcome, 1..n
     description: { type: String, maxlength: 1200 },
     bunnyVideoId: String,
+    pendingBunnyVideoId: String, // replacement video being uploaded; swapped in once encoded
     videoStatus: { type: String, enum: Object.values(VIDEO_STATUS), default: VIDEO_STATUS.NONE },
     durationSeconds: Number,
     thumbnailUrl: String,

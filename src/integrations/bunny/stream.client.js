@@ -1,67 +1,77 @@
-import { requireEnv } from '../../config/env.js';
-import { sha256Hex } from '../../utils/crypto.js';
+// Bunny Stream: create video, TUS upload credentials, signed embed, captions, status mapping.
+import { env } from '../../config/env.js';
 import { VIDEO_STATUS } from '../../config/constants.js';
+import { ApiError } from '../../utils/ApiError.js';
+import { sha256 } from '../../utils/crypto.js';
 import { bunnyFetch } from './http.js';
 
 const API = 'https://video.bunnycdn.com';
-const TUS_ENDPOINT = `${API}/tusupload`;
-
-const cfg = () => {
-  const e = requireEnv('BUNNY_STREAM_LIBRARY_ID', 'BUNNY_STREAM_API_KEY');
-  return { lib: e.BUNNY_STREAM_LIBRARY_ID, key: e.BUNNY_STREAM_API_KEY };
+const need = (...names) => {
+  const out = {};
+  for (const n of names) {
+    if (!env[n]) throw ApiError.upstream(`Bunny Stream is not configured (${n} missing)`);
+    out[n] = env[n];
+  }
+  return out;
 };
-const call = (path, opts = {}) => {
-  const { lib, key } = cfg();
-  return bunnyFetch(`${API}/library/${lib}${path}`, { ...opts, headers: { AccessKey: key, ...(opts.headers ?? {}) } });
-};
+const lib = () => need('BUNNY_STREAM_LIBRARY_ID', 'BUNNY_STREAM_API_KEY');
+const auth = () => ({ AccessKey: lib().BUNNY_STREAM_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' });
 
-/** Creates the video record in Bunny. The browser then uploads the file straight to Bunny (TUS). */
-export const createVideo = (title) => call('/videos', { method: 'POST', json: { title } }); // -> { guid, ... }
-export const getVideo = (guid) => call(`/videos/${guid}`);
-export const deleteVideo = (guid) => call(`/videos/${guid}`, { method: 'DELETE' });
-
-/**
- * Short-lived credentials for the admin browser's resumable upload.
- * Signature = sha256(libraryId + apiKey + expiration + videoId). The API key itself never leaves the server.
- */
-export function getUploadCredentials(videoId, ttlSeconds = 6 * 3600) {
-  const { lib, key } = cfg();
+export async function createVideo(title) {
+  const { BUNNY_STREAM_LIBRARY_ID: id } = lib();
+  return bunnyFetch(`${API}/library/${id}/videos`, { method: 'POST', headers: auth(), body: JSON.stringify({ title }) }); // { guid, ... }
+}
+export async function getVideo(guid) {
+  const { BUNNY_STREAM_LIBRARY_ID: id } = lib();
+  return bunnyFetch(`${API}/library/${id}/videos/${guid}`, { headers: auth() });
+}
+export async function deleteVideo(guid) {
+  const { BUNNY_STREAM_LIBRARY_ID: id } = lib();
+  return bunnyFetch(`${API}/library/${id}/videos/${guid}`, { method: 'DELETE', headers: auth(), parse: 'none' });
+}
+/** Short-lived TUS credentials: the browser uploads straight to Bunny, the file never touches this server. */
+export function tusCredentials(videoId, ttlSeconds = 6 * 3600) {
+  const { BUNNY_STREAM_LIBRARY_ID: libraryId, BUNNY_STREAM_API_KEY: apiKey } = lib();
   const expire = Math.floor(Date.now() / 1000) + ttlSeconds;
   return {
-    endpoint: TUS_ENDPOINT,
+    endpoint: `${API}/tusupload`,
+    expiresAt: new Date(expire * 1000).toISOString(),
     headers: {
-      AuthorizationSignature: sha256Hex(`${lib}${key}${expire}${videoId}`),
+      AuthorizationSignature: sha256(`${libraryId}${apiKey}${expire}${videoId}`),
       AuthorizationExpire: String(expire),
       VideoId: videoId,
-      LibraryId: lib,
+      LibraryId: String(libraryId),
     },
-    expiresAt: expire,
   };
 }
-
-/**
- * Signed, expiring player URL for an entitled member. Requires in Bunny: Stream library >
- * Security > "Embed view token authentication" ON, and allowed referrers set to the portal domain.
- */
-export function signEmbedUrl(videoId, ttlSeconds = 4 * 3600) {
-  const { BUNNY_STREAM_LIBRARY_ID: lib, BUNNY_STREAM_TOKEN_KEY: tokenKey } = requireEnv('BUNNY_STREAM_LIBRARY_ID', 'BUNNY_STREAM_TOKEN_KEY');
+/** Signed, expiring embed URL (token authentication must be enabled on the library). */
+export function signedEmbedUrl(videoId, ttlSeconds = 4 * 3600) {
+  const { BUNNY_STREAM_LIBRARY_ID: libraryId, BUNNY_STREAM_TOKEN_KEY: key } = need('BUNNY_STREAM_LIBRARY_ID', 'BUNNY_STREAM_TOKEN_KEY');
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const token = sha256Hex(`${tokenKey}${videoId}${expires}`);
-  return `https://iframe.mediadelivery.net/embed/${lib}/${videoId}?token=${token}&expires=${expires}&preload=false`;
+  const token = sha256(`${key}${videoId}${expires}`);
+  return { url: `https://iframe.mediadelivery.net/embed/${libraryId}/${videoId}?token=${token}&expires=${expires}`, expiresAt: new Date(expires * 1000).toISOString() };
 }
-
-/** Captions / transcripts. vtt = WebVTT text. */
-export const addCaption = (videoId, { srclang = 'en', label = 'English', vtt }) =>
-  call(`/videos/${videoId}/captions/${srclang}`, {
-    method: 'POST',
-    json: { srclang, label, captionsFile: Buffer.from(vtt, 'utf8').toString('base64') },
+export async function addCaption(guid, srclang, label, vttText) {
+  const { BUNNY_STREAM_LIBRARY_ID: id } = lib();
+  const captionsFile = Buffer.from(vttText, 'utf8').toString('base64');
+  return bunnyFetch(`${API}/library/${id}/videos/${guid}/captions/${encodeURIComponent(srclang)}`, {
+    method: 'POST', headers: auth(), body: JSON.stringify({ srclang, label, captionsFile }), parse: 'none',
   });
-export const deleteCaption = (videoId, srclang) => call(`/videos/${videoId}/captions/${srclang}`, { method: 'DELETE' });
+}
+export async function deleteCaption(guid, srclang) {
+  const { BUNNY_STREAM_LIBRARY_ID: id } = lib();
+  return bunnyFetch(`${API}/library/${id}/videos/${guid}/captions/${encodeURIComponent(srclang)}`, { method: 'DELETE', headers: auth(), parse: 'none' });
+}
+export const thumbnailUrl = (guid, file = 'thumbnail.jpg') =>
+  env.BUNNY_STREAM_CDN_HOSTNAME ? `https://${env.BUNNY_STREAM_CDN_HOSTNAME}/${guid}/${file}` : null;
 
-/** Bunny numeric status -> our VIDEO_STATUS. 0 created, 1 uploaded, 2 processing, 3 transcoding, 4 finished, 5 error, 6 upload failed. */
+/** Bunny status codes: 0 created, 1 uploaded, 2 processing, 3 transcoding, 4 finished, 5 error, 6 upload failed. */
 export function mapStatus(code) {
-  if (code === 4) return VIDEO_STATUS.READY;
-  if (code === 5 || code === 6) return VIDEO_STATUS.FAILED;
-  if (code === 1 || code === 2 || code === 3) return VIDEO_STATUS.PROCESSING;
-  return VIDEO_STATUS.UPLOADING;
+  switch (Number(code)) {
+    case 0: return VIDEO_STATUS.UPLOADING;
+    case 1: case 2: case 3: return VIDEO_STATUS.PROCESSING;
+    case 4: return VIDEO_STATUS.READY;
+    case 5: case 6: return VIDEO_STATUS.FAILED;
+    default: return null; // JIT statuses etc.: ignore
+  }
 }

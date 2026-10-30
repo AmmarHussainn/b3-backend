@@ -1,3 +1,1 @@
-import { z } from 'zod';
-
-// TODO: zod schemas for src/api/v1/admin/auth/auth.validators.js
+export { login, refresh, setPassword, forgot, reset, change, linkStatus } from '../../member/auth/auth.validators.js';

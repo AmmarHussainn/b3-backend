@@ -1,3 +1,13 @@
 import { z } from 'zod';
-
-// TODO: zod schemas for src/api/v1/admin/lessons/lessons.validators.js
+import { idParams, oid, pageQuery } from '../../../../utils/zodHelpers.js';
+import { CONTENT_STATUS } from '../../../../config/constants.js';
+export { idParams };
+const description = z.string().trim().max(1200);
+export const list = z.object({ ...pageQuery, categoryId: oid.optional(), productId: oid.optional(), status: z.enum(Object.values(CONTENT_STATUS)).optional(), q: z.string().max(100).optional() });
+export const create = z.object({ categoryId: oid.optional(), productKey: z.literal('start-here').optional(), title: z.string().trim().min(2).max(160), description: description.optional() }).refine((o) => o.categoryId || o.productKey, 'Send categoryId (training) or productKey "start-here"');
+export const update = z.object({ title: z.string().trim().min(2).max(160).optional(), description: description.optional() }).refine((o) => Object.keys(o).length, 'Nothing to update');
+export { actionParams, actionBody } from '../replays/replays.validators.js';
+export const caption = z.object({ srclang: z.string().regex(/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/), label: z.string().trim().min(1).max(60), vtt: z.string().min(10).max(2_000_000) });
+export const captionParams = z.object({ id: oid, srclang: z.string().min(2).max(10) });
+export const flatOrder = z.object({ lessonIds: z.array(oid).min(1) });
+export const categoryParams = z.object({ categoryId: oid });

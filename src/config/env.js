@@ -45,6 +45,12 @@ const schema = z.object({
   EMAIL_PROVIDER_API_KEY: opt,
   EMAIL_FROM: z.string().default('Consult b3 <portal@consultb3.com>'),
   SENTRY_DSN: opt,
+  // ---- added for the milestone code ----
+  LOG_LEVEL: z.string().default('info'),
+  RUN_JOBS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  RECONCILE_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'), // turn ON after the launch-day batch
+  UPLOAD_MAX_MB: z.coerce.number().default(50),
+  BUNNY_STREAM_CDN_HOSTNAME: opt, // e.g. vz-xxxx.b-cdn.net (thumbnails)
 });
 
 const parsed = schema.safeParse(process.env);

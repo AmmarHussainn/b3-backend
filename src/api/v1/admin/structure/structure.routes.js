@@ -1,7 +1,8 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/admin/structure/structure.routes.js
-
-export default router;
+import { validate } from '../../../../middleware/validate.js';
+import * as v from './structure.validators.js';
+import * as c from './structure.controller.js';
+const r = Router(); // owner only (mounted)
+r.get('/', c.overview);
+r.patch('/products/:id', validate({ params: v.idParams, body: v.updateProduct }), c.updateProduct);
+export default r;

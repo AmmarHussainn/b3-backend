@@ -1,7 +1,6 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/member/replays/replays.routes.js
-
-export default router;
+import * as c from './replays.controller.js';
+const r = Router();
+r.get('/', c.list);
+r.get('/:slug', c.bySlug);
+export default r;

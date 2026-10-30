@@ -1,7 +1,7 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/member/training/training.routes.js
-
-export default router;
+import * as c from './training.controller.js';
+const r = Router();
+r.get('/', c.library);
+r.get('/courses/:courseSlug', c.course);
+r.get('/courses/:courseSlug/lessons/:lessonSlug', c.lesson);
+export default r;

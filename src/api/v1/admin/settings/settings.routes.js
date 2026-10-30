@@ -1,7 +1,8 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/admin/settings/settings.routes.js
-
-export default router;
+import { validate } from '../../../../middleware/validate.js';
+import * as v from './settings.validators.js';
+import * as c from './settings.controller.js';
+const r = Router(); // owner only (mounted)
+r.get('/', c.list);
+r.put('/:key', validate({ params: v.keyParams, body: v.body }), c.set);
+export default r;

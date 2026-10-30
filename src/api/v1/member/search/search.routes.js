@@ -1,7 +1,7 @@
 import { Router } from 'express';
-
-const router = Router();
-
-// TODO: routes for src/api/v1/member/search/search.routes.js
-
-export default router;
+import { validate } from '../../../../middleware/validate.js';
+import * as v from './search.validators.js';
+import { get } from './search.controller.js';
+const r = Router();
+r.get('/', validate({ query: v.query }), get);
+export default r;

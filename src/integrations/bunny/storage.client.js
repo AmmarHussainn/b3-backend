@@ -1,44 +1,37 @@
-import crypto from 'node:crypto';
-import { Readable } from 'node:stream';
-import { requireEnv } from '../../config/env.js';
+// Bunny Storage (resource files) + pull-zone token-signed downloads.
+import { env } from '../../config/env.js';
+import { ApiError } from '../../utils/ApiError.js';
+import { sha256Raw } from '../../utils/crypto.js';
 import { bunnyFetch } from './http.js';
 
-const storage = () => {
-  const e = requireEnv('BUNNY_STORAGE_ZONE', 'BUNNY_STORAGE_PASSWORD', 'BUNNY_STORAGE_HOST');
-  return { zone: e.BUNNY_STORAGE_ZONE, pass: e.BUNNY_STORAGE_PASSWORD, host: e.BUNNY_STORAGE_HOST };
+const need = () => {
+  for (const n of ['BUNNY_STORAGE_ZONE', 'BUNNY_STORAGE_PASSWORD']) if (!env[n]) throw ApiError.upstream(`Bunny Storage is not configured (${n} missing)`);
+  return { zone: env.BUNNY_STORAGE_ZONE, key: env.BUNNY_STORAGE_PASSWORD, host: env.BUNNY_STORAGE_HOST };
 };
-const clean = (p) => p.replace(/^\/+/, '');
+const enc = (p) => p.split('/').map(encodeURIComponent).join('/');
+const url = (p) => { const { zone, host } = need(); return `https://${host}/${zone}/${enc(p.replace(/^\//, ''))}`; };
 
-/** Upload a Buffer or Readable to the storage zone. path like "resources/cash-flow-worksheet/v1/b3-cash-flow-worksheet-v1.xlsx". */
-export async function putFile(path, data) {
-  const { zone, pass, host } = storage();
-  const isStream = data instanceof Readable;
-  await bunnyFetch(`https://${host}/${zone}/${clean(path)}`, {
-    method: 'PUT',
-    headers: { AccessKey: pass, 'content-type': 'application/octet-stream' },
-    body: isStream ? Readable.toWeb(data) : data,
-    duplex: isStream ? 'half' : undefined,
-    timeoutMs: 5 * 60_000,
-    raw: true,
-  });
-  return clean(path);
+export async function put(path, buffer, contentType = 'application/octet-stream') {
+  const { key } = need();
+  return bunnyFetch(url(path), { method: 'PUT', headers: { AccessKey: key, 'Content-Type': contentType }, body: buffer, timeoutMs: 120_000, parse: 'none' });
 }
-
-export async function deleteFile(path) {
-  const { zone, pass, host } = storage();
-  await bunnyFetch(`https://${host}/${zone}/${clean(path)}`, { method: 'DELETE', headers: { AccessKey: pass }, raw: true });
+export async function remove(path) {
+  const { key } = need();
+  return bunnyFetch(url(path), { method: 'DELETE', headers: { AccessKey: key }, parse: 'none' });
 }
-
-/**
- * Expiring download URL via the pull zone (Bunny CDN "Token Authentication" must be ON).
- * Add a pull-zone Edge Rule that sets `Content-Disposition: attachment` for the resources path
- * so files always download rather than preview.
- */
+/** Raw fetch Response (stream it to the member with an attachment disposition). */
+export async function download(path) {
+  const { key } = need();
+  const res = await bunnyFetch(url(path), { headers: { AccessKey: key }, timeoutMs: 120_000, parse: 'raw' });
+  if (!res.ok) throw ApiError.upstream(`Storage download failed (${res.status})`);
+  return res;
+}
+/** Pull-zone token authentication: token = base64url(sha256(securityKey + path + expires)). */
 export function signedDownloadUrl(path, ttlSeconds = 300) {
-  const { BUNNY_PULLZONE_HOSTNAME: host, BUNNY_PULLZONE_TOKEN_KEY: key } = requireEnv('BUNNY_PULLZONE_HOSTNAME', 'BUNNY_PULLZONE_TOKEN_KEY');
-  const urlPath = `/${clean(path)}`;
+  const { BUNNY_PULLZONE_HOSTNAME: host, BUNNY_PULLZONE_TOKEN_KEY: key } = env;
+  if (!host || !key) throw ApiError.upstream('Bunny pull zone is not configured (BUNNY_PULLZONE_HOSTNAME / BUNNY_PULLZONE_TOKEN_KEY)');
+  const p = `/${path.replace(/^\//, '')}`;
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const token = crypto.createHash('sha256').update(key + urlPath + expires).digest('base64')
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  return `https://${host}${urlPath}?token=${token}&expires=${expires}`;
+  const token = sha256Raw(`${key}${p}${expires}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return { url: `https://${host}${enc(p)}?token=${token}&expires=${expires}`, expiresAt: new Date(expires * 1000).toISOString() };
 }

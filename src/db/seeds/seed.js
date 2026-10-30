@@ -1,21 +1,29 @@
-import { connectDB, disconnectDB } from '../connection.js';
-import { Product, Offer } from '../models/index.js';
-import { products } from './data/products.js';
-import { offers } from './data/offers.js';
-import { logger } from '../../utils/logger.js';
+// Idempotent. Safe to re-run: uses $setOnInsert so it never overwrites changes made in the admin.
+//   npm run seed                    -> Core container only (start with one; add Advanced later)
+//   npm run seed -- --with-advanced -> also create the Advanced container
+import { connectDb, disconnectDb } from '../connection.js';
+import { Product, Category, Offer, Setting } from '../models/index.js';
+import { PRODUCT_KEYS as K, CONTENT_STATUS as CS } from '../../config/constants.js';
+import { DEFAULTS } from '../../services/settings.service.js';
+import { PRODUCTS } from './data/products.js';
+import { OFFERS } from './data/offers.js';
 
-// Idempotent: safe to re-run. Upserts by key.
-await connectDB();
+const withAdvanced = process.argv.includes('--with-advanced');
+await connectDb();
 
-for (const p of products) await Product.updateOne({ key: p.key }, { $set: p }, { upsert: true });
-const all = await Product.find().select('_id key').lean();
-const byKey = Object.fromEntries(all.map((p) => [p.key, p._id]));
-
-for (const o of offers) {
-  const { productKeys, ...rest } = o;
-  const productIds = productKeys ? productKeys.map((k) => byKey[k]) : all.map((p) => p._id);
-  await Offer.updateOne({ key: o.key }, { $set: { ...rest, productIds } }, { upsert: true });
+const ids = {};
+for (const { optional, ...p } of PRODUCTS) {
+  if (optional && !withAdvanced) continue;
+  const doc = await Product.findOneAndUpdate({ key: p.key }, { $setOnInsert: p }, { upsert: true, new: true });
+  ids[p.key] = doc._id;
 }
+// Start Here is a flat list but Lesson.categoryId is required, so it gets one hidden holding category.
+await Category.updateOne({ productId: ids[K.START_HERE], slug: 'general' }, { $setOnInsert: { kind: 'course', title: 'Start Here', description: 'Holding category for the flat Start Here lessons', order: 0, status: CS.LIVE } }, { upsert: true });
 
-logger.info({ products: products.length, offers: offers.length }, 'Seed complete');
-await disconnectDB();
+for (const o of OFFERS) {
+  await Offer.updateOne({ key: o.key }, { $setOnInsert: { ...o, productIds: Object.values(ids), active: true } }, { upsert: true });
+}
+for (const [key, value] of Object.entries(DEFAULTS)) await Setting.updateOne({ key }, { $setOnInsert: { value } }, { upsert: true });
+
+console.log(`Seeded ${Object.keys(ids).length} products, ${OFFERS.length} offers, ${Object.keys(DEFAULTS).length} settings.`);
+await disconnectDb();

@@ -1,6 +1,7 @@
-// One response envelope everywhere: { success, data, meta } or { success:false, error }.
-export const ok = (res, data = null, meta) => res.status(200).json({ success: true, data, ...(meta ? { meta } : {}) });
-export const created = (res, data = null) => res.status(201).json({ success: true, data });
+// One success envelope: { data, meta? }.  Errors use { error: { code, message, details, requestId } }.
+export const ok = (res, data = null, meta) => res.status(200).json(meta ? { data, meta } : { data });
+export const created = (res, data) => res.status(201).json({ data });
+export const accepted = (res, data) => res.status(202).json({ data });
 export const noContent = (res) => res.status(204).end();
-export const paginated = (res, items, { page, limit, total }) =>
-  ok(res, items, { page, limit, total, pages: Math.ceil(total / limit) });
+export const paginated = (res, { items, total, page, limit, extra = {} }) =>
+  res.status(200).json({ data: items, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)), ...extra } });

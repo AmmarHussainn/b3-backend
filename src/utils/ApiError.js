@@ -1,23 +1,25 @@
 import { ERROR_CODES as C } from '../config/constants.js';
 
+const HTTP = {
+  [C.BAD_REQUEST]: 400, [C.VALIDATION_ERROR]: 422, [C.UNAUTHORIZED]: 401, [C.INVALID_CREDENTIALS]: 401,
+  [C.TOKEN_EXPIRED]: 401, [C.TOKEN_INVALID]: 401, [C.LINK_EXPIRED]: 410, [C.PASSWORD_NOT_SET]: 403,
+  [C.ACCOUNT_LOCKED]: 423, [C.ACCESS_ENDED]: 403, [C.FORBIDDEN]: 403, [C.NOT_FOUND]: 404,
+  [C.CONFLICT]: 409, [C.RATE_LIMITED]: 429, [C.UPSTREAM_ERROR]: 502, [C.INTERNAL]: 500,
+};
+
 export class ApiError extends Error {
-  constructor(status, code, message, details) {
-    super(message);
+  constructor(code, message, details) {
+    super(message || code);
     this.name = 'ApiError';
-    this.status = status;
     this.code = code;
+    this.status = HTTP[code] || 500;
     this.details = details;
   }
-  static badRequest(message = 'Bad request', details) { return new ApiError(400, C.BAD_REQUEST, message, details); }
-  static validation(details) { return new ApiError(422, C.VALIDATION_ERROR, 'Validation failed', details); }
-  static unauthorized(code = C.UNAUTHORIZED, message = 'Authentication required') { return new ApiError(401, code, message); }
-  static forbidden(message = 'You do not have permission to do that') { return new ApiError(403, C.FORBIDDEN, message); }
-  static notFound(message = 'Not found') { return new ApiError(404, C.NOT_FOUND, message); }
-  static conflict(message = 'Conflict', details) { return new ApiError(409, C.CONFLICT, message, details); }
-  static tooMany(message = 'Too many requests, try again shortly') { return new ApiError(429, C.RATE_LIMITED, message); }
-  static upstream(service, message, details) { return new ApiError(502, C.UPSTREAM_ERROR, `${service}: ${message}`, details); }
-  /** Revoked/suspended client. The frontend shows a friendly "contact Consult b3" screen. */
-  static accessEnded(message = 'Your portal access has ended. Please contact the Consult b3 team.') {
-    return new ApiError(403, C.ACCESS_ENDED, message);
-  }
+  static badRequest(m, d) { return new ApiError(C.BAD_REQUEST, m, d); }
+  static validation(m, d) { return new ApiError(C.VALIDATION_ERROR, m, d); }
+  static unauthorized(m = 'Authentication required') { return new ApiError(C.UNAUTHORIZED, m); }
+  static forbidden(m = 'You do not have permission to do that') { return new ApiError(C.FORBIDDEN, m); }
+  static notFound(m = 'Not found') { return new ApiError(C.NOT_FOUND, m); }
+  static conflict(m, d) { return new ApiError(C.CONFLICT, m, d); }
+  static upstream(m, d) { return new ApiError(C.UPSTREAM_ERROR, m, d); }
 }

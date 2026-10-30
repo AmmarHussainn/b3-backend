@@ -1,18 +1,8 @@
-// npm run keys  -> prints the four JWT env lines (RS256). Paste into .env (API) and the public keys into each Next.js app.
+// Prints the four JWT key lines for .env. Plain Node, no project imports (env.js needs these keys to start).
 import { generateKeyPairSync } from 'node:crypto';
 
-const pair = () =>
-  generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-  });
+const pair = () => generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
 const line = (name, pem) => `${name}="${pem.trim().replace(/\n/g, '\\n')}"`;
-
-const member = pair();
-const admin = pair();
-console.log(line('JWT_MEMBER_PRIVATE_KEY', member.privateKey));
-console.log(line('JWT_MEMBER_PUBLIC_KEY', member.publicKey));
-console.log(line('JWT_ADMIN_PRIVATE_KEY', admin.privateKey));
-console.log(line('JWT_ADMIN_PUBLIC_KEY', admin.publicKey));
-console.log('\n# web app .env.local:  JWT_PUBLIC_KEY = the MEMBER public key\n# admin app .env.local: JWT_PUBLIC_KEY = the ADMIN public key');
+const m = pair(); const a = pair();
+console.log([line('JWT_MEMBER_PRIVATE_KEY', m.privateKey), line('JWT_MEMBER_PUBLIC_KEY', m.publicKey), line('JWT_ADMIN_PRIVATE_KEY', a.privateKey), line('JWT_ADMIN_PUBLIC_KEY', a.publicKey)].join('\n'));
+console.error('\nPaste into .env. Give the web apps only the PUBLIC keys. Never commit private keys.');

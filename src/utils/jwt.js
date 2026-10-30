@@ -1,47 +1,32 @@
-import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+// RS256. Member and admin tokens use different keys AND different audiences.
+import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { ERROR_CODES } from '../config/constants.js';
+import { ERROR_CODES as C } from '../config/constants.js';
 import { ApiError } from './ApiError.js';
 
-// RS256: only this API holds the private keys. The Next.js apps get the PUBLIC key
-// so their middleware can verify tokens without being able to mint them.
-const ALG = 'RS256';
-const AUD = { member: 'b3-member', admin: 'b3-admin' }; // member tokens can never open admin routes
-const keys = new Map();
-
-const privKey = (kind) => {
-  const k = `${kind}:private`;
-  if (!keys.has(k)) keys.set(k, importPKCS8(kind === 'member' ? env.JWT_MEMBER_PRIVATE_KEY : env.JWT_ADMIN_PRIVATE_KEY, ALG));
-  return keys.get(k);
-};
-const pubKey = (kind) => {
-  const k = `${kind}:public`;
-  if (!keys.has(k)) keys.set(k, importSPKI(kind === 'member' ? env.JWT_MEMBER_PUBLIC_KEY : env.JWT_ADMIN_PUBLIC_KEY, ALG));
-  return keys.get(k);
+export const AUD = Object.freeze({ MEMBER: 'b3-member', ADMIN: 'b3-admin' });
+const CFG = {
+  member: { priv: env.JWT_MEMBER_PRIVATE_KEY, pub: env.JWT_MEMBER_PUBLIC_KEY, aud: AUD.MEMBER },
+  admin: { priv: env.JWT_ADMIN_PRIVATE_KEY, pub: env.JWT_ADMIN_PUBLIC_KEY, aud: AUD.ADMIN },
 };
 
-/** kind: 'member' | 'admin'. Claims stay small: sub, status/role, ver (tokenVersion). */
-export async function signAccessToken(kind, { sub, ...claims }) {
-  return new SignJWT(claims)
-    .setProtectedHeader({ alg: ALG })
-    .setSubject(String(sub))
-    .setIssuer(env.JWT_ISSUER)
-    .setAudience(AUD[kind])
-    .setIssuedAt()
-    .setExpirationTime(`${env.ACCESS_TTL_SECONDS}s`)
-    .sign(await privKey(kind));
+function sign(kind, doc, extra = {}) {
+  const c = CFG[kind];
+  return jwt.sign({ tv: doc.tokenVersion || 0, ...extra }, c.priv, {
+    algorithm: 'RS256', issuer: env.JWT_ISSUER, audience: c.aud,
+    subject: String(doc._id || doc.id), expiresIn: env.ACCESS_TTL_SECONDS,
+  });
 }
-
-export async function verifyAccessToken(kind, token) {
+function verify(kind, token) {
+  const c = CFG[kind];
   try {
-    const { payload } = await jwtVerify(token, await pubKey(kind), {
-      issuer: env.JWT_ISSUER,
-      audience: AUD[kind],
-      algorithms: [ALG],
-    });
-    return payload;
-  } catch (err) {
-    const expired = err?.code === 'ERR_JWT_EXPIRED';
-    throw ApiError.unauthorized(expired ? ERROR_CODES.TOKEN_EXPIRED : ERROR_CODES.TOKEN_INVALID, expired ? 'Session expired' : 'Invalid session');
+    return jwt.verify(token, c.pub, { algorithms: ['RS256'], issuer: env.JWT_ISSUER, audience: c.aud });
+  } catch (e) {
+    if (e.name === 'TokenExpiredError') throw new ApiError(C.TOKEN_EXPIRED, 'Access token expired');
+    throw new ApiError(C.TOKEN_INVALID, 'Invalid token');
   }
 }
+export const signMember = (user) => sign('member', user);
+export const signAdmin = (admin) => sign('admin', admin, { role: admin.role });
+export const verifyMember = (t) => verify('member', t);
+export const verifyAdmin = (t) => verify('admin', t);

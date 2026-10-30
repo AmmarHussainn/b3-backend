@@ -1,3 +1,2 @@
 import { z } from 'zod';
-
-// TODO: zod schemas for src/api/v1/integrations/hubspot/hubspot.validators.js
+export const body = z.object({}).passthrough();
